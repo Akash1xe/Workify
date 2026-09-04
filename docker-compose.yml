@@ -9,11 +9,23 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel_auth"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  postgres-org-init:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-sentinel_dev_password}
+    volumes:
+      - ./infrastructure/postgres/init:/scripts:ro
+    command: ["psql", "-h", "postgres", "-U", "sentinel", "-d", "sentinel_auth", "-f", "/scripts/01-create-databases.sql"]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -51,12 +63,35 @@ services:
       timeout: 3s
       retries: 10
 
+  organization-service:
+    build: ./services/organization-service
+    environment:
+      NODE_ENV: development
+      PORT: 4002
+      DATABASE_URL: postgresql://sentinel:${POSTGRES_PASSWORD:-sentinel_dev_password}@postgres:5432/sentinel_org?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-development-access-secret-change-me-123456}
+      JWT_ISSUER: sentinelai-auth
+      JWT_AUDIENCE: sentinelai-api
+      INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-7}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4000}
+    ports:
+      - "4002:4002"
+    depends_on:
+      postgres-org-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api-gateway:
     build: ./services/api-gateway
     environment:
       NODE_ENV: development
       PORT: 4000
       AUTH_SERVICE_URL: http://auth-service:4001
+      ORGANIZATION_SERVICE_URL: http://organization-service:4002
       REDIS_URL: redis://redis:6379
       RATE_LIMIT_REQUESTS: 100
       RATE_LIMIT_WINDOW_SECONDS: 60
@@ -67,9 +102,10 @@ services:
     depends_on:
       auth-service:
         condition: service_healthy
+      organization-service:
+        condition: service_healthy
       redis:
         condition: service_healthy
 
 volumes:
   postgres_data:
-

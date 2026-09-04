@@ -16,5 +16,6 @@ Add the multi-tenant Organization Service using Node.js, Express, TypeScript, Pr
 - Keep the Organization Service database separate; user IDs are plain cross-service references, not foreign keys.
 - Proxy `/api/organizations/*` through the API Gateway.
 
-The full implementation will be added after Phase 1 is verified.
+## Acceptance flow
 
+Create an organization as one authenticated user, invite a second registered user, verify that the second user receives `404` before joining, accept the invitation using the matching email, list the members, change the invited member's role, and verify owner protections.

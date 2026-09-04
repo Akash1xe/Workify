@@ -83,6 +83,75 @@ curl -i -X POST http://localhost:4000/api/auth/logout \
 
 Reusing the old token after rotation returns `401` and revokes the user's active sessions.
 
+## Phase 2: Organization Service
+
+`organization-service` runs on port `4002` and owns the separate `sentinel_org` database. It provides organizations, membership roles, invitations, owner protections, and the security-critical tenant-isolation middleware.
+
+Register two users through the gateway and copy their access tokens:
+
+```bash
+curl -s -X POST http://localhost:4000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"owner@example.com","password":"StrongPass123!","name":"Owner"}'
+
+curl -s -X POST http://localhost:4000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"engineer@example.com","password":"StrongPass123!","name":"Engineer"}'
+
+OWNER_TOKEN="paste-owner-access-token"
+ENGINEER_TOKEN="paste-engineer-access-token"
+```
+
+Create an organization and copy its `id`:
+
+```bash
+curl -s -X POST http://localhost:4000/api/organizations \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Acme Engineering"}'
+
+ORG_ID="paste-organization-id"
+```
+
+Invite the second user and copy the returned invitation `token`:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/organizations/$ORG_ID/invitations" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"engineer@example.com","role":"ENGINEER"}'
+
+INVITATION_TOKEN="paste-invitation-token"
+```
+
+Before accepting, this request intentionally returns `404` because the second user is not a member:
+
+```bash
+curl -i "http://localhost:4000/api/organizations/$ORG_ID" \
+  -H "Authorization: Bearer $ENGINEER_TOKEN"
+```
+
+Accept the invitation, list members, and copy the invited user's `userId`:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/organizations/invitations/$INVITATION_TOKEN/accept" \
+  -H "Authorization: Bearer $ENGINEER_TOKEN"
+
+curl -s "http://localhost:4000/api/organizations/$ORG_ID/members" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+
+ENGINEER_USER_ID="paste-engineer-user-id"
+```
+
+Change the invited member's role:
+
+```bash
+curl -s -X PATCH "http://localhost:4000/api/organizations/$ORG_ID/members/$ENGINEER_USER_ID" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"ADMIN"}'
+```
+
 ## Local checks
 
 ```bash
@@ -94,6 +163,12 @@ npm run build
 
 cd ../api-gateway
 npm install
+npm run build
+
+cd ../organization-service
+npm install
+npm run prisma:generate
+npm test
 npm run build
 
 cd ../..

@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  ENGINEER
+  VIEWER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Organization {
+  id          String               @id @default(uuid())
+  name        String
+  slug        String               @unique
+  members     OrganizationMember[]
+  invitations Invitation[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+}
+
+model OrganizationMember {
+  id             String           @id @default(uuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Invitation {
+  id              String             @id @default(uuid())
+  organizationId  String
+  email           String
+  role            OrganizationRole
+  token           String             @unique
+  status          InvitationStatus   @default(PENDING)
+  invitedByUserId String
+  expiresAt       DateTime
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime           @default(now())
+
+  @@index([organizationId, status])
+  @@index([email, status])
+}
+
