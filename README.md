@@ -1,31 +1,105 @@
 # SentinelAI
 
-SentinelAI is a distributed incident-management and observability platform for backend engineering teams. It ingests application telemetry, detects production failures, creates incidents, supports real-time collaboration, and uses an AI/RAG investigator to propose evidence-backed root causes and remediation steps.
+SentinelAI is a distributed incident-management and observability platform that detects production failures, creates incidents, and uses AI/RAG to produce evidence-backed root-cause hypotheses.
 
-The system is designed as a focused set of microservices. Services communicate through REST when an immediate response is required and through Kafka for high-volume or asynchronous workflows. Each service owns its own database.
+## Phase 1: API Gateway + Auth Service
 
-## Planned architecture
+Implemented services:
 
-- API Gateway
-- Auth Service
-- Organization Service
-- Service Catalog Service
-- Incident Service
-- Real-time Layer
-- Ingestion Service
-- Telemetry Worker
-- Alert Service
-- Notification Service
-- Document Service and Worker
-- AI/RAG Investigator
-- GitHub Integration
-- Observability and AWS deployment
+- `api-gateway` on port `4000`: request IDs, strict CORS, Helmet, Redis-backed IP rate limiting that fails open, and `/api/auth/*` proxying.
+- `auth-service` on port `4001`: registration, login, JWT access/refresh tokens, atomic refresh rotation, token-reuse detection, logout, session management, and HTTP-only refresh cookies.
+- PostgreSQL 16 and Redis 7 for local development.
 
-## Current repository contents
+The gateway contains no business logic. Refresh tokens are stored only as SHA-256 hashes. Access and refresh tokens use different secrets, issuers/audiences are validated, passwords use bcrypt with 12 rounds, and request bodies are validated with Zod.
 
-The `docs/phases` directory contains the supplied implementation specifications for Phases 3–14. Application source code will be added phase by phase and verified before each push.
+## Run with Docker
 
-## Implementation status
+Requirements: Docker with Docker Compose.
 
-According to the project brief, Phases 1–3 have already been built. Their source code was not present in the workspace used to initialize this repository, so it has not yet been committed here.
+```bash
+cp .env.example .env
+docker compose up --build
+```
 
+For local development, the Compose file supplies usable fallback secrets. Replace them in `.env` before sharing or deploying the project.
+
+Health checks:
+
+```bash
+curl http://localhost:4000/health
+curl http://localhost:4001/health
+```
+
+## Test the auth flow
+
+Register and save the response:
+
+```bash
+curl -s -X POST http://localhost:4000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"akash@example.com","password":"StrongPass123!","name":"Akash"}'
+```
+
+Login. Copy `accessToken` and `refreshToken` from the response:
+
+```bash
+curl -s -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"akash@example.com","password":"StrongPass123!"}'
+```
+
+Get the current user:
+
+```bash
+ACCESS_TOKEN="paste-access-token"
+curl -s http://localhost:4000/api/auth/me \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Rotate the refresh token. The old refresh token becomes unusable immediately:
+
+```bash
+REFRESH_TOKEN="paste-refresh-token"
+curl -s -X POST http://localhost:4000/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
+```
+
+List sessions:
+
+```bash
+curl -s http://localhost:4000/api/auth/sessions \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Logout using the newest refresh token:
+
+```bash
+NEW_REFRESH_TOKEN="paste-new-refresh-token"
+curl -i -X POST http://localhost:4000/api/auth/logout \
+  -H "Content-Type: application/json" \
+  -d "{\"refreshToken\":\"$NEW_REFRESH_TOKEN\"}"
+```
+
+Reusing the old token after rotation returns `401` and revokes the user's active sessions.
+
+## Local checks
+
+```bash
+cd services/auth-service
+npm install
+npm run prisma:generate
+npm test
+npm run build
+
+cd ../api-gateway
+npm install
+npm run build
+
+cd ../..
+docker compose config
+```
+
+## Project specifications
+
+Detailed Phase 1–14 specifications are stored under [`docs/phases`](docs/phases).
