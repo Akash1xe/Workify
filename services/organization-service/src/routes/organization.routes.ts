@@ -6,6 +6,7 @@ import {
   createInvitation,
   createOrganization,
   deleteOrganization,
+  getMember,
   getOrganization,
   listInvitations,
   listMembers,
@@ -34,9 +35,9 @@ organizationRouter.get("/:id", requireOrgRole(), getOrganization);
 organizationRouter.patch("/:id", requireOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN]), validateBody(updateOrganizationSchema), updateOrganization);
 organizationRouter.delete("/:id", requireOrgRole([OrganizationRole.OWNER]), deleteOrganization);
 organizationRouter.get("/:id/members", requireOrgRole(), listMembers);
+organizationRouter.get("/:id/members/:userId", requireOrgRole(), getMember);
 organizationRouter.patch("/:id/members/:userId", requireOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN]), validateBody(updateMemberRoleSchema), changeMemberRole);
 organizationRouter.delete("/:id/members/:userId", requireOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN]), removeMember);
 organizationRouter.post("/:id/invitations", requireOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN]), validateBody(createInvitationSchema), createInvitation);
 organizationRouter.get("/:id/invitations", requireOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN]), listInvitations);
 organizationRouter.delete("/:id/invitations/:invitationId", requireOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN]), revokeInvitation);
-

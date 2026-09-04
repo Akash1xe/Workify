@@ -41,6 +41,12 @@ export class OrganizationService {
     return organizations.listMembers(id);
   }
 
+  async getMember(organizationId: string, userId: string) {
+    const member = await organizations.findMember(organizationId, userId);
+    if (!member) throw new AppError(404, "MEMBER_NOT_FOUND", "Member not found");
+    return member;
+  }
+
   async changeMemberRole(organizationId: string, userId: string, role: OrganizationRole) {
     const target = await organizations.findMember(organizationId, userId);
     if (!target) throw new AppError(404, "MEMBER_NOT_FOUND", "Member not found");
@@ -117,4 +123,3 @@ export class OrganizationService {
     }
   }
 }
-

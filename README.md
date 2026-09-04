@@ -213,6 +213,67 @@ curl -i -X POST http://localhost:4000/api/catalog/v1/heartbeat \
 
 The final request returns `401`.
 
+## Phase 4: Incident Service
+
+`incident-service` runs on port `4004`, owns the separate `sentinel_incident` database, and is exposed through the gateway under `/api/incidents`. Every operation verifies real organization membership; every incident lookup also includes `organizationId`, preventing cross-tenant access even when an incident ID is known.
+
+Mutations that affect incident history write the incident/comment and its append-only timeline event in one PostgreSQL transaction. Status transitions are limited to `TRIGGERED -> ACKNOWLEDGED -> INVESTIGATING -> MITIGATING -> RESOLVED`, with the deliberate shortcut `TRIGGERED -> INVESTIGATING`. Phase 4 hard-deletes incidents for Owner/Admin users as specified; durable audit retention should replace this before production compliance use.
+
+Create an incident for a catalog service:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"serviceId\":\"$SERVICE_ID\",\"title\":\"Payment failures increased\",\"description\":\"Checkout is returning HTTP 500\",\"severity\":\"SEV1\"}"
+
+INCIDENT_ID="paste-incident-id"
+```
+
+List and filter incidents:
+
+```bash
+curl -s "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents?status=TRIGGERED&severity=SEV1&page=1&limit=20" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+```
+
+Acknowledge, investigate, mitigate, and resolve it:
+
+```bash
+for STATUS in ACKNOWLEDGED INVESTIGATING MITIGATING RESOLVED; do
+  curl -s -X PATCH "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents/$INCIDENT_ID/status" \
+    -H "Authorization: Bearer $OWNER_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"status\":\"$STATUS\"}"
+done
+```
+
+Assign the incident to an organization member:
+
+```bash
+curl -s -X PATCH "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents/$INCIDENT_ID/assignee" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"userId\":\"$ENGINEER_USER_ID\"}"
+```
+
+Add a comment, then inspect the comments and immutable timeline:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents/$INCIDENT_ID/comments" \
+  -H "Authorization: Bearer $ENGINEER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"body":"Connection pool saturation confirmed."}'
+
+curl -s "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents/$INCIDENT_ID/comments" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+
+curl -s "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents/$INCIDENT_ID/timeline" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+```
+
+Only a comment's author can edit or delete it, including when another caller is an Owner or Admin. Viewers can read incidents, comments, and timelines but all mutation routes return `403`.
+
 ## Local checks
 
 ```bash
@@ -233,6 +294,12 @@ npm test
 npm run build
 
 cd ../service-catalog-service
+npm install
+npm run prisma:generate
+npm test
+npm run build
+
+cd ../incident-service
 npm install
 npm run prisma:generate
 npm test

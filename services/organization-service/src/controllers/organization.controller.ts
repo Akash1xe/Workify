@@ -41,6 +41,10 @@ export const listMembers: RequestHandler = async (req, res, next) => {
   try { res.json({ members: await service.listMembers(param(req, "id")) }); } catch (error) { next(error); }
 };
 
+export const getMember: RequestHandler = async (req, res, next) => {
+  try { res.json({ member: await service.getMember(param(req, "id"), param(req, "userId")) }); } catch (error) { next(error); }
+};
+
 export const changeMemberRole: RequestHandler = async (req, res, next) => {
   try {
     res.json({ member: await service.changeMemberRole(param(req, "id"), param(req, "userId"), req.body.role) });

@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IncidentStatus {
+  TRIGGERED
+  ACKNOWLEDGED
+  INVESTIGATING
+  MITIGATING
+  RESOLVED
+}
+
+enum IncidentSeverity {
+  SEV1
+  SEV2
+  SEV3
+  SEV4
+}
+
+enum IncidentSource {
+  MANUAL
+  ALERT
+}
+
+enum TimelineEventType {
+  INCIDENT_CREATED
+  STATUS_CHANGED
+  SEVERITY_CHANGED
+  ASSIGNEE_CHANGED
+  COMMENT_ADDED
+  TITLE_CHANGED
+  DESCRIPTION_CHANGED
+}
+
+model Incident {
+  id                  String                  @id @default(uuid())
+  organizationId      String
+  serviceId           String
+  title               String
+  description         String?
+  status              IncidentStatus          @default(TRIGGERED)
+  severity            IncidentSeverity
+  source              IncidentSource          @default(MANUAL)
+  sourceAlertId       String?                 @unique
+  createdByUserId     String?
+  assignedToUserId    String?
+  acknowledgedAt      DateTime?
+  investigatingAt     DateTime?
+  mitigatingAt        DateTime?
+  resolvedAt          DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  timeline            IncidentTimelineEvent[]
+  comments            IncidentComment[]
+
+  @@index([organizationId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([severity])
+  @@index([createdAt])
+  @@index([organizationId, status])
+  @@index([organizationId, serviceId])
+}
+
+model IncidentTimelineEvent {
+  id          String            @id @default(uuid())
+  incidentId  String
+  incident    Incident          @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  type        TimelineEventType
+  actorUserId String?
+  message     String
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+
+  @@index([incidentId, createdAt])
+}
+
+model IncidentComment {
+  id           String   @id @default(uuid())
+  incidentId   String
+  incident     Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  authorUserId String
+  body         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([incidentId, createdAt])
+}
