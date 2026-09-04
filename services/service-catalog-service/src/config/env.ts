@@ -9,6 +9,7 @@ const schema = z.object({
   JWT_AUDIENCE: z.string().min(1).default("sentinelai-api"),
   ORGANIZATION_SERVICE_URL: z.url().default("http://localhost:4002"),
   MEMBERSHIP_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(3_000),
+  INTERNAL_SERVICE_SECRET: z.string().min(32),
   CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:4000")
 });
 
@@ -24,4 +25,3 @@ if (parsed.data.NODE_ENV === "production" && corsOrigins.length === 0) {
 }
 
 export const env = { ...parsed.data, corsOrigins };
-

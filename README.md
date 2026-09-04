@@ -324,6 +324,68 @@ The script connects both users, authorizes both room joins, performs the REST st
 
 Isolation check: connect a user who is not a member of `$ORG_ID` and emit `incident:join` with that organization and incident. The acknowledgment returns `{ok:false}` and that socket receives no room events. Resilience check: stop `realtime-service` or Redis, mutate an incident through REST, and confirm the REST request still succeeds; after restart, re-fetch the incident to obtain current state.
 
+## Phase 6: Telemetry ingestion and Kafka
+
+`ingestion-service` runs on port `4006` and is a stateless front door for logs, metrics, and generic application events. It owns no database. Backend services authenticate with `x-api-key`; human JWTs do not authenticate ingestion routes.
+
+The raw key is sent over an internal REST call to Service Catalog's protected `/internal/api-keys/verify` endpoint. Organization and service identity always come from that verified key, never from the telemetry body. The service validates the complete batch before publishing anything, enriches each record with a versioned envelope, and publishes with `serviceId` as the partition key.
+
+Kafka topics are created with three local-development partitions and replication factor one:
+
+- `sentinel.telemetry.logs.v1`
+- `sentinel.telemetry.metrics.v1`
+- `sentinel.telemetry.events.v1`
+
+Kafka guarantees ordering only within a partition. A `202` response means Kafka acknowledged the records, not that a Phase 7 worker has persisted them. If Kafka cannot acknowledge the publish, ingestion returns `503`. Redis-backed per-service rate limiting fails open if Redis is unavailable.
+
+Send a log using the API key created in Phase 3:
+
+```bash
+curl -i -X POST http://localhost:4000/api/ingest/v1/logs \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"records":[{"level":"ERROR","message":"Database connection failed","attributes":{"host":"postgres"}}]}'
+```
+
+Send a metrics batch and a generic application event:
+
+```bash
+curl -i -X POST http://localhost:4000/api/ingest/v1/metrics \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"records":[{"name":"http_request_error_rate","value":0.12,"type":"GAUGE","unit":"ratio","attributes":{"route":"/checkout"}}]}'
+
+curl -i -X POST http://localhost:4000/api/ingest/v1/events \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"records":[{"name":"deployment.completed","severity":"INFO","message":"v4.7 deployed","attributes":{"version":"v4.7","commit":"abc123"}}]}'
+```
+
+Inspect each topic from another terminal:
+
+```bash
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:9092 \
+  --topic sentinel.telemetry.logs.v1 \
+  --from-beginning
+```
+
+The envelope contains trusted `organizationId`, `serviceId`, `serviceName`, `schemaVersion: 1`, timestamps, and the ingestion request ID. It never contains the raw API key.
+
+After revoking the key with the Phase 3 command, another ingestion request returns `401`. To verify Kafka failure semantics, stop Kafka and retry:
+
+```bash
+docker compose stop kafka
+# Repeat a valid ingestion request; expected response is 503.
+docker compose start kafka
+```
+
+Readiness reports Kafka connectivity:
+
+```bash
+curl -i http://localhost:4006/ready
+```
+
 ## Local checks
 
 ```bash
@@ -356,6 +418,11 @@ npm test
 npm run build
 
 cd ../realtime-service
+npm install
+npm test
+npm run build
+
+cd ../ingestion-service
 npm install
 npm test
 npm run build

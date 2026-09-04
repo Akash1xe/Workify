@@ -7,6 +7,7 @@ import { AppError } from "./errors/AppError";
 import { errorHandler } from "./middleware/errorHandler";
 import { catalogRouter } from "./routes/catalog.routes";
 import { heartbeatRouter } from "./routes/heartbeat.routes";
+import { internalRouter } from "./routes/internal.routes";
 
 export const app = express();
 
@@ -29,7 +30,7 @@ app.use(express.json({ limit: "32kb" }));
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/v1", heartbeatRouter);
+app.use("/internal", internalRouter);
 app.use("/organizations/:organizationId/services", catalogRouter);
 app.use((_req, _res, next) => next(new AppError(404, "NOT_FOUND", "Route not found")));
 app.use(errorHandler);
-

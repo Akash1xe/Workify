@@ -70,3 +70,6 @@ export const heartbeat: RequestHandler = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+export const verifyApiKey: RequestHandler = async (req, res, next) => {
+  try { res.json(await catalog.verifyApiKey(req.body.apiKey)); } catch (error) { next(error); }
+};

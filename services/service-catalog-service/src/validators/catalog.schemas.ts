@@ -27,3 +27,5 @@ export const heartbeatSchema = z.object({
   status: z.enum(["HEALTHY", "DEGRADED", "DOWN"]),
   version: z.string().trim().min(1).max(100).optional()
 });
+
+export const verifyApiKeySchema = z.object({ apiKey: z.string().min(20).max(512) }).strict();

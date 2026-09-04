@@ -4,6 +4,7 @@ import { ApiKeyRepository } from "../repositories/apiKey.repository";
 import { ServiceRepository } from "../repositories/service.repository";
 import { apiKeyPrefix, generateApiKey, hashApiKey } from "../utils/apiKey";
 import { serializeService } from "../utils/serviceSerializer";
+import { isApiKeyUsable } from "../utils/apiKeyUsability";
 
 const services = new ServiceRepository();
 const apiKeys = new ApiKeyRepository();
@@ -20,6 +21,24 @@ export interface ServiceInput {
 }
 
 export class CatalogService {
+  async verifyApiKey(rawKey: string) {
+    const apiKey = await apiKeys.findByHash(hashApiKey(rawKey));
+    if (!apiKey || !isApiKeyUsable(apiKey)) {
+      throw new AppError(401, "INVALID_API_KEY", "API key is invalid, revoked, or expired");
+    }
+    await apiKeys.touch(apiKey.id);
+    return {
+      valid: true,
+      service: {
+        id: apiKey.service.id,
+        organizationId: apiKey.service.organizationId,
+        name: apiKey.service.name,
+        environment: apiKey.service.environment
+      },
+      apiKey: { id: apiKey.id, name: apiKey.name }
+    };
+  }
+
   async create(organizationId: string, ownerUserId: string, input: ServiceInput) {
     try {
       const service = await services.create({
@@ -118,4 +137,3 @@ export class CatalogService {
     return serializeService(await services.updateHeartbeat(serviceId, status, version));
   }
 }
-

@@ -7,6 +7,7 @@ const schema = z.object({
   ORGANIZATION_SERVICE_URL: z.url().default("http://localhost:4002"),
   CATALOG_SERVICE_URL: z.url().default("http://localhost:4003"),
   INCIDENT_SERVICE_URL: z.url().default("http://localhost:4004"),
+  INGESTION_SERVICE_URL: z.url().default("http://localhost:4006"),
   REDIS_URL: z.url().default("redis://localhost:6379"),
   RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
