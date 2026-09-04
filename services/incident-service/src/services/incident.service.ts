@@ -5,12 +5,14 @@ import { assertStatusTransition, transitionTimestamp } from "../domain/lifecycle
 import { AppError } from "../errors/AppError";
 import { CommentRepository } from "../repositories/comment.repository";
 import { IncidentFilters, IncidentRepository, TimelineInput } from "../repositories/incident.repository";
+import { IncidentRealtimeEvent, publishIncidentEvent } from "./realtimePublisher";
 
 type Dependencies = {
   incidents?: IncidentRepository;
   comments?: CommentRepository;
   verifyService?: typeof assertCatalogService;
   verifyMember?: typeof assertOrganizationMember;
+  publish?: typeof publishIncidentEvent;
 };
 
 const pagination = (page: number, limit: number, total: number) => ({
@@ -25,12 +27,26 @@ export class IncidentService {
   private readonly comments: CommentRepository;
   private readonly verifyService: typeof assertCatalogService;
   private readonly verifyMember: typeof assertOrganizationMember;
+  private readonly publisher: typeof publishIncidentEvent;
 
   constructor(dependencies: Dependencies = {}) {
     this.incidents = dependencies.incidents ?? new IncidentRepository();
     this.comments = dependencies.comments ?? new CommentRepository();
     this.verifyService = dependencies.verifyService ?? assertCatalogService;
     this.verifyMember = dependencies.verifyMember ?? assertOrganizationMember;
+    this.publisher = dependencies.publish ?? publishIncidentEvent;
+  }
+
+  private async publish(event: IncidentRealtimeEvent) {
+    try {
+      await this.publisher(event);
+    } catch (error) {
+      console.warn("Realtime incident event publish failed", {
+        event: event.event,
+        room: event.room,
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
   }
 
   async create(
@@ -40,7 +56,7 @@ export class IncidentService {
     input: { serviceId: string; title: string; description?: string; severity: IncidentSeverity }
   ) {
     await this.verifyService(organizationId, input.serviceId, authorization);
-    return this.incidents.createWithTimeline(
+    const incident = await this.incidents.createWithTimeline(
       { organizationId, ...input, source: "MANUAL", createdByUserId: actorUserId },
       {
         type: TimelineEventType.INCIDENT_CREATED,
@@ -49,6 +65,12 @@ export class IncidentService {
         metadata: { status: "TRIGGERED", severity: input.severity, serviceId: input.serviceId }
       }
     );
+    await this.publish({
+      room: `org:${organizationId}`,
+      event: "incident:created",
+      payload: { incident }
+    });
+    return incident;
   }
 
   async list(organizationId: string, filters: IncidentFilters, page: number, limit: number) {
@@ -89,6 +111,17 @@ export class IncidentService {
     if (!events.length) return incident;
     const updated = await this.incidents.updateDetails(organizationId, incidentId, input, events);
     if (!updated) throw new AppError(404, "INCIDENT_NOT_FOUND", "Incident not found");
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:updated",
+      payload: {
+        incidentId,
+        organizationId,
+        changes: input,
+        actorUserId,
+        updatedAt: updated.updatedAt.toISOString()
+      }
+    });
     return updated;
   }
 
@@ -109,6 +142,11 @@ export class IncidentService {
       }
     );
     if (!updated) throw new AppError(409, "INCIDENT_CHANGED", "Incident changed while the request was being processed; retry the operation");
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:status-changed",
+      payload: { incidentId, organizationId, from: incident.status, to: status, actorUserId, updatedAt: updated.updatedAt.toISOString() }
+    });
     return updated;
   }
 
@@ -128,6 +166,11 @@ export class IncidentService {
       }
     );
     if (!updated) throw new AppError(409, "INCIDENT_CHANGED", "Incident changed while the request was being processed; retry the operation");
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:severity-changed",
+      payload: { incidentId, organizationId, from: incident.severity, to: severity, actorUserId, updatedAt: updated.updatedAt.toISOString() }
+    });
     return updated;
   }
 
@@ -154,6 +197,18 @@ export class IncidentService {
       }
     );
     if (!updated) throw new AppError(409, "INCIDENT_CHANGED", "Incident changed while the request was being processed; retry the operation");
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:assignee-changed",
+      payload: {
+        incidentId,
+        organizationId,
+        from: incident.assignedToUserId,
+        to: userId,
+        actorUserId,
+        updatedAt: updated.updatedAt.toISOString()
+      }
+    });
     return updated;
   }
 
@@ -166,6 +221,11 @@ export class IncidentService {
   async addComment(organizationId: string, incidentId: string, authorUserId: string, body: string) {
     const comment = await this.comments.createWithTimeline(organizationId, incidentId, authorUserId, body);
     if (!comment) throw new AppError(404, "INCIDENT_NOT_FOUND", "Incident not found");
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:comment-added",
+      payload: { incidentId, organizationId, comment }
+    });
     return comment;
   }
 
@@ -180,7 +240,14 @@ export class IncidentService {
     if (!comment) throw new AppError(404, "COMMENT_NOT_FOUND", "Comment not found");
     if (comment.authorUserId !== actorUserId) throw new AppError(403, "COMMENT_AUTHOR_REQUIRED", "Only the comment author can edit this comment");
     await this.comments.update(organizationId, incidentId, commentId, body);
-    return this.comments.findScoped(organizationId, incidentId, commentId);
+    const updated = await this.comments.findScoped(organizationId, incidentId, commentId);
+    if (!updated) throw new AppError(404, "COMMENT_NOT_FOUND", "Comment not found");
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:comment-updated",
+      payload: { incidentId, organizationId, comment: updated }
+    });
+    return updated;
   }
 
   async deleteComment(organizationId: string, incidentId: string, commentId: string, actorUserId: string) {
@@ -188,11 +255,21 @@ export class IncidentService {
     if (!comment) throw new AppError(404, "COMMENT_NOT_FOUND", "Comment not found");
     if (comment.authorUserId !== actorUserId) throw new AppError(403, "COMMENT_AUTHOR_REQUIRED", "Only the comment author can delete this comment");
     await this.comments.delete(organizationId, incidentId, commentId);
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:comment-deleted",
+      payload: { incidentId, organizationId, commentId }
+    });
   }
 
   async deleteIncident(organizationId: string, incidentId: string) {
     if (!(await this.incidents.delete(organizationId, incidentId))) {
       throw new AppError(404, "INCIDENT_NOT_FOUND", "Incident not found");
     }
+    await this.publish({
+      room: `incident:${incidentId}`,
+      event: "incident:deleted",
+      payload: { incidentId, organizationId }
+    });
   }
 }

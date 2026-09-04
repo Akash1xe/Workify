@@ -274,6 +274,56 @@ curl -s "http://localhost:4000/api/incidents/organizations/$ORG_ID/incidents/$IN
 
 Only a comment's author can edit or delete it, including when another caller is an Owner or Admin. Viewers can read incidents, comments, and timelines but all mutation routes return `403`.
 
+## Phase 5: Real-time collaboration
+
+`realtime-service` runs on port `4005` and owns no database. REST remains behind the API Gateway, while Socket.IO connects directly to `http://localhost:4005` using the `/socket.io` path. This is the deliberate WebSocket entry-point exception; the API Gateway remains the only REST entry point.
+
+Socket connections require the same access JWT issued by Auth Service. Before joining `incident:{incidentId}`, Realtime Service verifies both organization membership and that the incident belongs to that organization through synchronous REST calls. Clients cannot request arbitrary Socket.IO rooms.
+
+Incident Service publishes these best-effort messages to the `sentinel:realtime` Redis channel only after its PostgreSQL mutation commits:
+
+- `incident:created`
+- `incident:updated`
+- `incident:status-changed`
+- `incident:severity-changed`
+- `incident:assignee-changed`
+- `incident:comment-added`
+- `incident:comment-updated`
+- `incident:comment-deleted`
+- `incident:deleted`
+
+Socket.IO's Redis adapter distributes broadcasts across multiple Realtime Service instances. Delivery is ephemeral and at-most-once from the UI's perspective: a disconnected client can miss an event and must re-fetch authoritative REST state. Redis or Realtime Service failure never rolls back or fails a committed incident mutation.
+
+Browser connection example:
+
+```ts
+import { io } from "socket.io-client";
+
+const socket = io("http://localhost:4005", {
+  path: "/socket.io",
+  auth: { token: accessToken }
+});
+
+socket.emit("incident:join", { organizationId: ORG_ID, incidentId: INCIDENT_ID }, console.log);
+socket.on("incident:status-changed", console.log);
+```
+
+Run the included two-client smoke test after both users are members of the same organization. Choose a valid next lifecycle state for `NEXT_STATUS`:
+
+```bash
+cd services/realtime-service
+ORG_ID="$ORG_ID" \
+INCIDENT_ID="$INCIDENT_ID" \
+ENGINEER_A_TOKEN="$OWNER_TOKEN" \
+ENGINEER_B_TOKEN="$ENGINEER_TOKEN" \
+NEXT_STATUS="ACKNOWLEDGED" \
+npm run test:realtime
+```
+
+The script connects both users, authorizes both room joins, performs the REST status mutation, and exits successfully only when both clients receive `incident:status-changed`.
+
+Isolation check: connect a user who is not a member of `$ORG_ID` and emit `incident:join` with that organization and incident. The acknowledgment returns `{ok:false}` and that socket receives no room events. Resilience check: stop `realtime-service` or Redis, mutate an incident through REST, and confirm the REST request still succeeds; after restart, re-fetch the incident to obtain current state.
+
 ## Local checks
 
 ```bash
@@ -302,6 +352,11 @@ npm run build
 cd ../incident-service
 npm install
 npm run prisma:generate
+npm test
+npm run build
+
+cd ../realtime-service
+npm install
 npm test
 npm run build
 

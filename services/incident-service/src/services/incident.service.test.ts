@@ -29,20 +29,24 @@ const incident = (overrides: Record<string, unknown> = {}) => ({
 const setup = (incidentOverrides: Record<string, unknown> = {}) => {
   const incidents = {
     findScoped: vi.fn().mockResolvedValue(incident(incidentOverrides)),
+    createWithTimeline: vi.fn().mockResolvedValue(incident(incidentOverrides)),
     changeStatus: vi.fn().mockImplementation(async (_org, _id, _from, data) => incident({ ...incidentOverrides, ...data })),
     changeSeverity: vi.fn().mockImplementation(async (_org, _id, _from, severity) => incident({ ...incidentOverrides, severity })),
-    changeAssignee: vi.fn().mockImplementation(async (_org, _id, _from, assignedToUserId) => incident({ ...incidentOverrides, assignedToUserId }))
+    changeAssignee: vi.fn().mockImplementation(async (_org, _id, _from, assignedToUserId) => incident({ ...incidentOverrides, assignedToUserId })),
+    delete: vi.fn().mockResolvedValue(true)
   };
-  const comments = { findScoped: vi.fn(), update: vi.fn(), delete: vi.fn() };
+  const comments = { createWithTimeline: vi.fn(), findScoped: vi.fn(), update: vi.fn(), delete: vi.fn() };
   const verifyService = vi.fn();
   const verifyMember = vi.fn();
+  const publish = vi.fn();
   const service = new IncidentService({
     incidents: incidents as unknown as IncidentRepository,
     comments: comments as unknown as CommentRepository,
     verifyService,
-    verifyMember
+    verifyMember,
+    publish
   });
-  return { service, incidents, comments, verifyService, verifyMember };
+  return { service, incidents, comments, verifyService, verifyMember, publish };
 };
 
 describe("IncidentService", () => {
@@ -64,9 +68,10 @@ describe("IncidentService", () => {
   });
 
   it("writes the lifecycle timestamp with the status update", async () => {
-    const { service, incidents } = setup();
+    const { service, incidents, publish } = setup();
     await service.updateStatus("org-a", "incident-a", "user-1", IncidentStatus.ACKNOWLEDGED);
     expect(incidents.changeStatus.mock.calls[0][3]).toMatchObject({ status: "ACKNOWLEDGED", acknowledgedAt: expect.any(Date) });
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ event: "incident:status-changed", room: "incident:incident-a" }));
   });
 
   it("verifies a non-null assignee through Organization Service", async () => {
@@ -89,9 +94,27 @@ describe("IncidentService", () => {
   });
 
   it("allows only the author to delete a comment", async () => {
-    const { service, comments } = setup();
+    const { service, comments, publish } = setup();
     comments.findScoped.mockResolvedValue({ id: "comment-1", authorUserId: "user-1" });
     await service.deleteComment("org-a", "incident-a", "comment-1", "user-1");
     expect(comments.delete).toHaveBeenCalledWith("org-a", "incident-a", "comment-1");
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
+      event: "incident:comment-deleted",
+      payload: expect.objectContaining({ commentId: "comment-1" })
+    }));
+  });
+
+  it("publishes comment-added after the database operation succeeds", async () => {
+    const { service, comments, publish } = setup();
+    comments.createWithTimeline.mockResolvedValue({ id: "comment-1", authorUserId: "user-1", body: "Investigating" });
+    await service.addComment("org-a", "incident-a", "user-1", "Investigating");
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ event: "incident:comment-added" }));
+  });
+
+  it("does not fail a committed mutation when realtime publishing fails", async () => {
+    const { service, publish } = setup();
+    publish.mockRejectedValue(new Error("Redis unavailable"));
+    await expect(service.updateStatus("org-a", "incident-a", "user-1", IncidentStatus.ACKNOWLEDGED))
+      .resolves.toMatchObject({ status: IncidentStatus.ACKNOWLEDGED });
   });
 });

@@ -1,12 +1,13 @@
 import { app } from "./app";
 import { prisma } from "./config/database";
 import { env } from "./config/env";
+import { closeRealtimePublisher } from "./services/realtimePublisher";
 
 const server = app.listen(env.PORT, () => console.log(`incident-service listening on port ${env.PORT}`));
 
 const shutdown = async () => {
   server.close(async () => {
-    await prisma.$disconnect();
+    await Promise.allSettled([prisma.$disconnect(), closeRealtimePublisher()]);
     process.exit(0);
   });
 };

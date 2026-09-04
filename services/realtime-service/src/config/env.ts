@@ -2,17 +2,15 @@ import { z } from "zod";
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(4004),
-  DATABASE_URL: z.string().min(1),
+  PORT: z.coerce.number().int().positive().default(4005),
+  REDIS_URL: z.url().default("redis://localhost:6379"),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_ISSUER: z.string().min(1).default("sentinelai-auth"),
   JWT_AUDIENCE: z.string().min(1).default("sentinelai-api"),
   ORGANIZATION_SERVICE_URL: z.url().default("http://localhost:4002"),
-  CATALOG_SERVICE_URL: z.url().default("http://localhost:4003"),
+  INCIDENT_SERVICE_URL: z.url().default("http://localhost:4004"),
   DEPENDENCY_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(3_000),
-  REDIS_URL: z.url().default("redis://localhost:6379"),
-  REALTIME_PUBLISH_TIMEOUT_MS: z.coerce.number().int().min(50).max(5_000).default(500),
-  CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:4000")
+  CORS_ORIGINS: z.string().default("http://localhost:3000")
 });
 
 const parsed = schema.safeParse(process.env);

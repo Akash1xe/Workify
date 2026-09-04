@@ -122,6 +122,8 @@ services:
       ORGANIZATION_SERVICE_URL: http://organization-service:4002
       CATALOG_SERVICE_URL: http://service-catalog-service:4003
       DEPENDENCY_TIMEOUT_MS: ${DEPENDENCY_TIMEOUT_MS:-3000}
+      REDIS_URL: redis://redis:6379
+      REALTIME_PUBLISH_TIMEOUT_MS: ${REALTIME_PUBLISH_TIMEOUT_MS:-500}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4000}
     ports:
       - "4004:4004"
@@ -134,6 +136,30 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4004/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  realtime-service:
+    build: ./services/realtime-service
+    environment:
+      NODE_ENV: development
+      PORT: 4005
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-development-access-secret-change-me-123456}
+      JWT_ISSUER: sentinelai-auth
+      JWT_AUDIENCE: sentinelai-api
+      ORGANIZATION_SERVICE_URL: http://organization-service:4002
+      INCIDENT_SERVICE_URL: http://incident-service:4004
+      DEPENDENCY_TIMEOUT_MS: ${DEPENDENCY_TIMEOUT_MS:-3000}
+      CORS_ORIGINS: ${GATEWAY_CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "4005:4005"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4005/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 10

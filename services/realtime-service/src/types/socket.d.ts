@@ -1,0 +1,8 @@
+import "socket.io";
+
+declare module "socket.io" {
+  interface SocketData {
+    user: { id: string; email: string; sessionId: string };
+    authorization: string;
+  }
+}
