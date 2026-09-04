@@ -152,6 +152,67 @@ curl -s -X PATCH "http://localhost:4000/api/organizations/$ORG_ID/members/$ENGIN
   -d '{"role":"ADMIN"}'
 ```
 
+## Phase 3: Service Catalog
+
+`service-catalog-service` runs on port `4003`, owns the separate `sentinel_catalog` database, and verifies organization access through a real synchronous request to Organization Service. API keys are stored only as SHA-256 hashes and the full key is returned once.
+
+Using an organization ID and an Owner, Admin, or Engineer access token from the earlier flows, register a backend service:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/catalog/organizations/$ORG_ID/services" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"payment-service","description":"Processes payments","environment":"PRODUCTION","healthCheckUrl":"https://payments.example.com/health","language":"TypeScript","framework":"Express"}'
+
+SERVICE_ID="paste-service-id"
+```
+
+Create an API key and save the returned `key` immediately—it cannot be retrieved again:
+
+```bash
+curl -s -X POST "http://localhost:4000/api/catalog/organizations/$ORG_ID/services/$SERVICE_ID/api-keys" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"production key","expiresInDays":30}'
+
+API_KEY="paste-one-time-api-key"
+KEY_ID="paste-api-key-id"
+```
+
+Send a heartbeat and fetch the current service status:
+
+```bash
+curl -s -X POST http://localhost:4000/api/catalog/v1/heartbeat \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"HEALTHY","version":"v1.0.0"}'
+
+curl -s "http://localhost:4000/api/catalog/organizations/$ORG_ID/services/$SERVICE_ID" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+```
+
+After more than 90 seconds without a heartbeat, the stored status is displayed as `UNKNOWN` with `isStale: true`:
+
+```bash
+sleep 95
+curl -s "http://localhost:4000/api/catalog/organizations/$ORG_ID/services/$SERVICE_ID" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+```
+
+Revoke the API key and confirm it can no longer report health:
+
+```bash
+curl -i -X DELETE "http://localhost:4000/api/catalog/organizations/$ORG_ID/services/$SERVICE_ID/api-keys/$KEY_ID" \
+  -H "Authorization: Bearer $OWNER_TOKEN"
+
+curl -i -X POST http://localhost:4000/api/catalog/v1/heartbeat \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"HEALTHY"}'
+```
+
+The final request returns `401`.
+
 ## Local checks
 
 ```bash
@@ -166,6 +227,12 @@ npm install
 npm run build
 
 cd ../organization-service
+npm install
+npm run prisma:generate
+npm test
+npm run build
+
+cd ../service-catalog-service
 npm install
 npm run prisma:generate
 npm test

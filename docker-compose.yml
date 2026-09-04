@@ -22,7 +22,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-sentinel_dev_password}
     volumes:
       - ./infrastructure/postgres/init:/scripts:ro
-    command: ["psql", "-h", "postgres", "-U", "sentinel", "-d", "sentinel_auth", "-f", "/scripts/01-create-databases.sql"]
+    command: ["sh", "-c", "for file in /scripts/*.sql; do psql -h postgres -U sentinel -d sentinel_auth -f \"$$file\"; done"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +85,31 @@ services:
       timeout: 3s
       retries: 10
 
+  service-catalog-service:
+    build: ./services/service-catalog-service
+    environment:
+      NODE_ENV: development
+      PORT: 4003
+      DATABASE_URL: postgresql://sentinel:${POSTGRES_PASSWORD:-sentinel_dev_password}@postgres:5432/sentinel_catalog?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-development-access-secret-change-me-123456}
+      JWT_ISSUER: sentinelai-auth
+      JWT_AUDIENCE: sentinelai-api
+      ORGANIZATION_SERVICE_URL: http://organization-service:4002
+      MEMBERSHIP_TIMEOUT_MS: ${MEMBERSHIP_TIMEOUT_MS:-3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4000}
+    ports:
+      - "4003:4003"
+    depends_on:
+      postgres-org-init:
+        condition: service_completed_successfully
+      organization-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4003/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api-gateway:
     build: ./services/api-gateway
     environment:
@@ -92,6 +117,7 @@ services:
       PORT: 4000
       AUTH_SERVICE_URL: http://auth-service:4001
       ORGANIZATION_SERVICE_URL: http://organization-service:4002
+      CATALOG_SERVICE_URL: http://service-catalog-service:4003
       REDIS_URL: redis://redis:6379
       RATE_LIMIT_REQUESTS: 100
       RATE_LIMIT_WINDOW_SECONDS: 60
@@ -103,6 +129,8 @@ services:
       auth-service:
         condition: service_healthy
       organization-service:
+        condition: service_healthy
+      service-catalog-service:
         condition: service_healthy
       redis:
         condition: service_healthy

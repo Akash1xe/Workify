@@ -24,7 +24,8 @@ export const listOrganizations: RequestHandler = async (req, res, next) => {
 
 export const getOrganization: RequestHandler = async (req, res, next) => {
   try {
-    res.json({ organization: await service.get(param(req, "id"), req.membership!.role) });
+    const organization = await service.get(param(req, "id"), req.membership!.role);
+    res.json({ organization, yourRole: organization.yourRole });
   } catch (error) { next(error); }
 };
 
@@ -76,4 +77,3 @@ export const acceptInvitation: RequestHandler = async (req, res, next) => {
     res.status(201).json({ membership: await service.acceptInvitation(param(req, "token"), req.user!) });
   } catch (error) { next(error); }
 };
-

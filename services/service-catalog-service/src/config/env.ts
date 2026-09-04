@@ -2,15 +2,14 @@ import { z } from "zod";
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(4000),
-  AUTH_SERVICE_URL: z.url().default("http://localhost:4001"),
+  PORT: z.coerce.number().int().positive().default(4003),
+  DATABASE_URL: z.string().min(1),
+  JWT_ACCESS_SECRET: z.string().min(32),
+  JWT_ISSUER: z.string().min(1).default("sentinelai-auth"),
+  JWT_AUDIENCE: z.string().min(1).default("sentinelai-api"),
   ORGANIZATION_SERVICE_URL: z.url().default("http://localhost:4002"),
-  CATALOG_SERVICE_URL: z.url().default("http://localhost:4003"),
-  REDIS_URL: z.url().default("redis://localhost:6379"),
-  RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(100),
-  RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
-  CORS_ORIGINS: z.string().default("http://localhost:3000"),
-  TRUST_PROXY: z.enum(["true", "false"]).default("false")
+  MEMBERSHIP_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(3_000),
+  CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:4000")
 });
 
 const parsed = schema.safeParse(process.env);
@@ -24,4 +23,5 @@ if (parsed.data.NODE_ENV === "production" && corsOrigins.length === 0) {
   throw new Error("CORS_ORIGINS must contain at least one origin in production");
 }
 
-export const env = { ...parsed.data, corsOrigins, trustProxy: parsed.data.TRUST_PROXY === "true" };
+export const env = { ...parsed.data, corsOrigins };
+

@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Environment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum ServiceStatus {
+  HEALTHY
+  DEGRADED
+  DOWN
+  UNKNOWN
+}
+
+model Service {
+  id                    String        @id @default(uuid())
+  organizationId        String
+  name                  String
+  description           String?
+  environment           Environment   @default(PRODUCTION)
+  healthCheckUrl        String?
+  githubRepository      String?
+  team                  String?
+  language              String?
+  framework             String?
+  ownerUserId           String?
+  status                ServiceStatus @default(UNKNOWN)
+  lastHeartbeatAt       DateTime?
+  lastDeploymentVersion String?
+  apiKeys               ApiKey[]
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model ApiKey {
+  id         String   @id @default(uuid())
+  serviceId  String
+  name       String
+  keyPrefix  String
+  keyHash    String   @unique
+  revoked    Boolean  @default(false)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId])
+}
+

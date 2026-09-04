@@ -1,3 +1,5 @@
+# Phase 3 — Service Catalog Service
+
 I am building "SentinelAI" — a distributed incident-management and observability
 platform for backend engineering teams. Full product context:
 SentinelAI lets companies connect their backend microservices to it. Those
